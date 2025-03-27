@@ -1,0 +1,324 @@
+import 'package:flutter/material.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
+
+// Run the app.
+void main() {
+  runApp(MyApp());
+}
+
+// Main Application Widget with two routes: one for SQLite CRUD, and one for Image Grid.
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Exam Tasks',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(primarySwatch: Colors.blue),
+      home: HomePage(),
+      routes: {
+        '/crud': (context) => CRUDScreen(),
+        '/grid': (context) => GridScreen(),
+      },
+    );
+  }
+}
+
+// Home page with buttons to navigate to each task.
+class HomePage extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Exam Tasks'),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            ElevatedButton(
+              child: Text('SQLite CRUD Task'),
+              onPressed: () {
+                Navigator.pushNamed(context, '/crud');
+              },
+            ),
+            SizedBox(height: 20),
+            ElevatedButton(
+              child: Text('Image Grid Task'),
+              onPressed: () {
+                Navigator.pushNamed(context, '/grid');
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+//////////////////////////////
+// Task 1: SQLite CRUD Code //
+//////////////////////////////
+
+// A helper class for managing the SQLite database.
+class DatabaseHelper {
+  static final DatabaseHelper instance = DatabaseHelper._init();
+  static Database? _database;
+
+  DatabaseHelper._init();
+
+  Future<Database> get database async {
+    if (_database != null) return _database!;
+    _database = await _initDB('items.db');
+    return _database!;
+  }
+
+  Future<Database> _initDB(String fileName) async {
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, fileName);
+    return await openDatabase(
+      path,
+      version: 1,
+      onCreate: (db, version) async {
+        await db.execute('''
+          CREATE TABLE items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL
+          )
+        ''');
+      },
+    );
+  }
+
+  Future<int> createItem(String name) async {
+    final db = await database;
+    return await db.insert('items', {'name': name});
+  }
+
+  Future<List<Map<String, dynamic>>> getItems() async {
+    final db = await database;
+    return await db.query('items');
+  }
+
+  Future<int> updateItem(int id, String name) async {
+    final db = await database;
+    return await db.update('items', {'name': name},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<int> deleteItem(int id) async {
+    final db = await database;
+    return await db.delete('items', where: 'id = ?', whereArgs: [id]);
+  }
+}
+
+// The CRUDScreen widget implements the SQLite CRUD operations.
+class CRUDScreen extends StatefulWidget {
+  @override
+  _CRUDScreenState createState() => _CRUDScreenState();
+}
+
+class _CRUDScreenState extends State<CRUDScreen> {
+  List<Map<String, dynamic>> _items = [];
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadItems();
+  }
+
+  Future<void> _loadItems() async {
+    final items = await DatabaseHelper.instance.getItems();
+    setState(() {
+      _items = items;
+    });
+  }
+
+  Future<void> _addItem() async {
+    if (_controller.text.isEmpty) return;
+    await DatabaseHelper.instance.createItem(_controller.text);
+    _controller.clear();
+    _loadItems();
+  }
+
+  Future<void> _editItem(int id, String currentName) async {
+    _controller.text = currentName;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Edit Item'),
+        content: TextField(controller: _controller),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await DatabaseHelper.instance.updateItem(id, _controller.text);
+              Navigator.of(context).pop();
+              _loadItems();
+            },
+            child: Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteItem(int id) async {
+    await DatabaseHelper.instance.deleteItem(id);
+    _loadItems();
+  }
+
+  // Build the CRUD screen with a ListView and Floating Action Button.
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('SQLite CRUD Task')),
+      body: ListView.builder(
+        itemCount: _items.length,
+        itemBuilder: (context, index) {
+          final item = _items[index];
+          return ListTile(
+            title: Text(item['name']),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: Icon(Icons.edit),
+                  onPressed: () => _editItem(item['id'], item['name']),
+                ),
+                IconButton(
+                  icon: Icon(Icons.delete),
+                  onPressed: () => _deleteItem(item['id']),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        child: Icon(Icons.add),
+        onPressed: () {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Text('New Item'),
+              content: TextField(controller: _controller),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    _addItem();
+                    Navigator.of(context).pop();
+                  },
+                  child: Text('Add'),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/////////////////////////////////////
+// Task 2: Image Grid and Details  //
+/////////////////////////////////////
+
+// Data model for image items.
+class ImageItem {
+  final String imageUrl;
+  final String title;
+  final String description;
+
+  ImageItem({
+    required this.imageUrl,
+    required this.title,
+    required this.description,
+  });
+}
+
+// Sample data using network images (you can switch to asset images by updating the code and pubspec.yaml).
+final List<ImageItem> imageItems = [
+  ImageItem(
+      imageUrl: 'https://via.placeholder.com/150',
+      title: 'Picture 1',
+      description: 'Description for Picture 1'),
+  ImageItem(
+      imageUrl: 'https://via.placeholder.com/150/0000FF',
+      title: 'Picture 2',
+      description: 'Description for Picture 2'),
+  ImageItem(
+      imageUrl: 'https://via.placeholder.com/150/FF0000',
+      title: 'Picture 3',
+      description: 'Description for Picture 3'),
+  // Add more items as needed.
+];
+
+// GridScreen displays a grid of images and titles.
+class GridScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Image Grid Task'),
+      ),
+      body: GridView.builder(
+        padding: EdgeInsets.all(8),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2, // two columns
+          crossAxisSpacing: 8,
+          mainAxisSpacing: 8,
+        ),
+        itemCount: imageItems.length,
+        itemBuilder: (context, index) {
+          final item = imageItems[index];
+          return GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => DetailsScreen(item: item)),
+              );
+            },
+            child: Column(
+              children: [
+                Expanded(
+                  child: Image.network(
+                    item.imageUrl,
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(item.title),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// DetailsScreen displays a selected image and its description.
+class DetailsScreen extends StatelessWidget {
+  final ImageItem item;
+
+  DetailsScreen({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(item.title)),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Image.network(item.imageUrl),
+            SizedBox(height: 20),
+            Text(item.description, style: TextStyle(fontSize: 18)),
+          ],
+        ),
+      ),
+    );
+  }
+}
